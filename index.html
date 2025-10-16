@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Falling Numbers — Show</title>
+<style>
+  :root{
+    --bg:#050705;
+    --panel-bg: rgba(0,0,0,0.45);
+    --accent: #00ff6a;
+    --muted: rgba(255,255,255,0.75);
+  }
+
+  html,body{
+    height:100%;
+    margin:0;
+    background: radial-gradient(circle at 20% 10%, #07110a 0%, var(--bg) 40%);
+    font-family: Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+    color:var(--muted);
+    -webkit-font-smoothing:antialiased;
+    -moz-osx-font-smoothing:grayscale;
+  }
+
+  /* Canvas fills screen */
+  canvas#matrix {
+    display:block;
+    width:100%;
+    height:100%;
+  }
+
+  /* small control panel */
+  .panel {
+    position: fixed;
+    right: 18px;
+    top: 18px;
+    background: var(--panel-bg);
+    color: #e6ffe8;
+    padding: 12px 14px;
+    border-radius: 12px;
+    box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+    backdrop-filter: blur(6px) saturate(120%);
+    z-index: 10;
+    min-width: 190px;
+  }
+
+  .panel h3{
+    margin:0 0 8px 0;
+    font-size:14px;
+    color:var(--accent);
+    letter-spacing:0.6px;
+  }
+
+  .row { display:flex; gap:8px; align-items:center; margin-bottom:8px; }
+  .row label{ font-size:12px; min-width:60px; opacity:0.9; }
+  input[type="range"]{ width:100%; }
+  .small { font-size:12px; opacity:0.9; }
+
+  button {
+    margin-top:6px;
+    width:100%;
+    background:transparent;
+    border:1px solid rgba(255,255,255,0.08);
+    padding:8px;
+    border-radius:8px;
+    color:var(--muted);
+    cursor:pointer;
+    font-weight:600;
+  }
+  button:hover { border-color: rgba(0,255,106,0.35); box-shadow:0 4px 14px rgba(0,255,106,0.03); }
+
+  .credit {
+    position: fixed;
+    left: 18px;
+    bottom: 18px;
+    color: rgba(255,255,255,0.45);
+    font-size:13px;
+    z-index:9;
+    user-select:none;
+  }
+
+  /* Responsive small screen adjustments */
+  @media (max-width:480px){
+    .panel { left: 50%; transform: translateX(-50%); right:auto; top: 12px; min-width:unset; width: calc(100% - 36px); }
+  }
+</style>
+</head>
+<body>
+<canvas id="matrix"></canvas>
+
+<div class="panel" aria-label="controls">
+  <h3>Falling Numbers</h3>
+  <div class="row">
+    <label for="speed">Speed</label>
+    <input id="speed" type="range" min="0.2" max="3.5" step="0.05" value="1.1" />
+  </div>
+  <div class="row">
+    <label for="size">Size</label>
+    <input id="size" type="range" min="8" max="36" step="1" value="18" />
+  </div>
+  <div class="row">
+    <label for="density">Density</label>
+    <input id="density" type="range" min="0.2" max="2.5" step="0.05" value="1.0" />
+  </div>
+  <div class="row small">
+    <label>Palette</label>
+    <select id="palette" style="flex:1;padding:6px;border-radius:6px;background:transparent;color:inherit;">
+      <option value="green">Green (classic)</option>
+      <option value="cyan">Cyan</option>
+      <option value="rainbow">Rainbow</option>
+      <option value="white">White</option>
+    </select>
+  </div>
+  <button id="pause">Pause</button>
+</div>
+
+<div class="credit">Made for your show — press Pause to stop</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('matrix');
+  const ctx = canvas.getContext('2d', { alpha: true });
+
+  // Controls:
+  const speedInput = document.getElementById('speed');
+  const sizeInput = document.getElementById('size');
+  const densityInput = document.getElementById('density');
+  const paletteSelect = document.getElementById('palette');
+  const pauseBtn = document.getElementById('pause');
+
+  let width, height;
+  let columns = [];
+  let fontSize = parseInt(sizeInput.value, 10);
+  let density = parseFloat(densityInput.value);
+  let speedFactor = parseFloat(speedInput.value);
+  let paused = false;
+  let animationId = null;
+
+  // Characters (numbers only)
+  const chars = '0123456789';
+
+  // Setup canvas size
+  function resize() {
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    width = Math.floor(window.innerWidth);
+    height = Math.floor(window.innerHeight);
+    canvas.width = Math.floor(width * dpr);
+    canvas.height = Math.floor(height * dpr);
+    canvas.style.width = width + 'px';
+    canvas.style.height = height + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    // Recreate columns based on new width + density
+    const cols = Math.floor(width / fontSize);
+    columns = [];
+    for (let i = 0; i < cols; i++) {
+      // y = random start height to vary spawn
+      columns[i] = {
+        x: i * fontSize,
+        y: Math.random() * height * -1 * Math.random(), // start above or random pos
+        speed: (0.6 + Math.random() * 1.8) * speedFactor
+      };
+    }
+  }
+
+  // Color helpers
+  function paletteColor(i, alpha=1) {
+    const p = paletteSelect.value;
+    if (p === 'cyan') return `rgba(0,230,255,${alpha})`;
+    if (p === 'white') return `rgba(230,230,230,${alpha})`;
+    if (p === 'rainbow') {
+      // cycling hue based on column index
+      const hue = (i * 37) % 360;
+      return `hsla(${hue}deg,80%,60%,${alpha})`;
+    }
+    // default green with slight variation
+    const g = 160 + (i % 5) * 18;
+    return `rgba(0,${g},82,${alpha})`;
+  }
+
+  // Draw the frame
+  function draw() {
+    // Slight translucent rectangle to create trailing effect
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.12)';
+    ctx.fillRect(0, 0, width, height);
+
+    ctx.font = `${fontSize}px monospace`;
+    ctx.textBaseline = 'top';
+    ctx.shadowBlur = Math.max(0, Math.floor(fontSize / 5));
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+
+    const colCount = columns.length;
+    for (let i = 0; i < colCount; i++) {
+      const col = columns[i];
+      // Probability to skip drawing some columns to create density effect
+      if (Math.random() > Math.min(1, density)) continue;
+
+      // head character brighter
+      const char = chars[Math.floor(Math.random() * chars.length)];
+      // draw head
+      ctx.fillStyle = paletteColor(i, 1.0);
+      ctx.shadowBlur = Math.max(0, Math.floor(fontSize / 3));
+      ctx.fillText(char, col.x, col.y);
+
+      // draw one or two dimmer chars behind head to create glow
+      ctx.fillStyle = paletteColor(i, 0.65);
+      ctx.shadowBlur = 0;
+      ctx.fillText(chars[Math.floor(Math.random() * chars.length)], col.x, col.y - fontSize * 1);
+      ctx.fillStyle = paletteColor(i, 0.4);
+      ctx.fillText(chars[Math.floor(Math.random() * chars.length)], col.x, col.y - fontSize * 2);
+
+      // step forward
+      col.y += (col.speed * speedFactor) * (0.9 + Math.random() * 0.6);
+
+      // reset to top when out of bounds (with some randomness)
+      if (col.y > height + Math.random() * height * 0.2) {
+        col.y = -Math.random() * height * 0.6;
+        col.speed = (0.6 + Math.random() * 1.8) * speedFactor;
+      }
+    }
+  }
+
+  // Animation loop
+  function loop() {
+    if (!paused) {
+      draw();
+    }
+    animationId = requestAnimationFrame(loop);
+  }
+
+  // Controls binding
+  speedInput.addEventListener('input', (e) => {
+    speedFactor = parseFloat(e.target.value);
+    // update column speed base
+    columns.forEach(c => c.speed = (0.6 + Math.random() * 1.8) * speedFactor);
+  });
+
+  sizeInput.addEventListener('input', (e) => {
+    fontSize = parseInt(e.target.value, 10);
+    resize();
+  });
+
+  densityInput.addEventListener('input', (e) => {
+    density = parseFloat(e.target.value);
+  });
+
+  paletteSelect.addEventListener('change', () => {
+    // nothing special; colors are produced on the fly
+  });
+
+  pauseBtn.addEventListener('click', () => {
+    paused = !paused;
+    pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    // if unpausing, ensure animation loop running
+    if (!paused && !animationId) loop();
+  });
+
+  // Start/resume logic
+  function start() {
+    resize();
+    // initial clear with dark background
+    ctx.fillStyle = '#020502';
+    ctx.fillRect(0, 0, width, height);
+    cancelAnimationFrame(animationId);
+    animationId = null;
+    loop();
+  }
+
+  // handle resizing
+  let resizeTimer = null;
+  window.addEventListener('resize', () => {
+    // debounce resizing to avoid thrash
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+      resize();
+    }, 120);
+  });
+
+  // initial start
+  start();
+
+  // Accessibility: pause/resume with spacebar
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space') {
+      e.preventDefault();
+      pauseBtn.click();
+    }
+  });
+
+  // expose start/stop in console for quick demos
+  window.fallingNumbers = { pause: () => { paused = true; }, resume: () => { paused = false; }, restart: start };
+
+})();
+</script>
+</body>
+</html>
