@@ -12,10 +12,10 @@ Built with pure **HTML**, **CSS**, and **JavaScript** — perfect for visual sho
 
 ## ⚙️ How to Run
 1. **Download or clone** the repository:
-   ```bash git clone https://github.com/yourusername/Falling-Numbers-Show.git```
+   ```bash git clone https://github.com/Joeboukhalil/Falling-Numbers-Show.git```
 
-   2. Open index.html in your web browser.
-   3. Use the control panel (top right) to adjust:
+ 2. Open index.html in your web browser.
+ 3. Use the control panel (top right) to adjust:
      - Falling speed
      - Font size
      - Density of numbers
